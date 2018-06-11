@@ -11,6 +11,9 @@ extern crate tower_grpc;
 #[macro_use]
 extern crate mysql_async;
 
+#[macro_use]
+extern crate lazy_static;
+
 
 use std::env;
 use std::process;
@@ -26,6 +29,12 @@ use mysql_async::from_value;
 
 use std::collections::HashMap;
 use std::collections::LinkedList;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref CACHE: Mutex<HashMap<String, domain::ItemData>> = Mutex::new(HashMap::new());
+}
+
 
 pub mod services {
     include!(concat!(env!("OUT_DIR"), "/services.rs"));
@@ -43,7 +52,6 @@ use services::server;
 
 #[derive(Clone, Debug)]
 struct ItemServer {
-    item_data_cache: HashMap<String, domain::ItemData>,
     item_data_cache_order: LinkedList<String>,
     item_data_cache_size: isize,
     item_data_cache_size_max: isize,
@@ -55,7 +63,6 @@ impl ItemServer {
     fn new (max_cache_size: isize, mysql_url: String, reactor_handle: &Handle) -> ItemServer {
         let pool = mysql_async::Pool::new(mysql_url, reactor_handle);
         ItemServer {
-            item_data_cache: HashMap::new(),
             item_data_cache_order: LinkedList::new(),
             item_data_cache_size: 0,
             item_data_cache_size_max: max_cache_size,
@@ -63,8 +70,8 @@ impl ItemServer {
         }
     }
 
-    fn retrieve_item_data (&mut self, ident: String) -> impl Future<Item = Response<domain::ItemData>, Error = tower_grpc::Error> {
-  
+    fn retrieve_item_data(&mut self, ident: String) -> impl Future<Item = Response<domain::ItemData>, Error = tower_grpc::Error> {
+
       let sql_query = r#"SELECT id, ident, name, created_at, description
 FROM items
 WHERE ident=:ident"#;
@@ -73,6 +80,7 @@ WHERE ident=:ident"#;
       let connection = self.mysql_pool.get_conn();
 
       // take the connection and execute query
+      let ident_copy = ident.clone();
       let query = connection.and_then(move |conn| conn.prep_exec(sql_query, params! { ident }));
 
       // get the result set and reduce it
@@ -84,8 +92,8 @@ WHERE ident=:ident"#;
                            Some(domain::ItemData {
                                // assume all are non-nulls.... gotta look into this later
                                id: from_value(row.take(0).unwrap()),
-                               ident: from_value(row.take(1).unwrap()), 
-                               name: from_value(row.take(2).unwrap()), 
+                               ident: from_value(row.take(1).unwrap()),
+                               name: from_value(row.take(2).unwrap()),
                                created_at: mysql_value_to_timestamp(row.take(3)),
                                description: from_value(row.take(6).unwrap()),
                            })
@@ -93,10 +101,9 @@ WHERE ident=:ident"#;
 
       // map into futures
       result.then(|result| match result {
-
         // we found data, return it
-        Ok((_, Some(object))) => { 
-          println!("object is: {:?}", object);
+        Ok((_, Some(object))) => {
+          CACHE.lock().unwrap().insert(ident_copy, object.clone());
           futures::future::ok(Response::new(object))
         },
 
@@ -129,23 +136,24 @@ fn mysql_value_to_timestamp (valuep: Option<mysql_async::Value>) -> (Option<base
 
 impl server::SimpleService for ItemServer {
     type GetItemDataFuture = Box<Future<Item=Response<domain::ItemData>, Error = tower_grpc::Error>>;
-   
-    fn get_item_data (&mut self, request: Request<domain::ItemSpecifier>) -> Self::GetItemDataFuture {
+
+    fn get_item_data(&mut self, request: Request<domain::ItemSpecifier>) -> Self::GetItemDataFuture {
 
         let ident = request.into_inner().ident;
 
-        if self.item_data_cache.contains_key(&ident) {
-          let cached = self.item_data_cache.get(&ident);
+        let cache = CACHE.lock().unwrap();
+        if cache.contains_key(&ident.clone()) {
+          let cached = cache.get(&ident.to_string().clone());
           Box::new(futures::future::ok(Response::new(cached.unwrap().clone())))
         } else {
-          let future = self.retrieve_item_data (ident);
+          let future = self.retrieve_item_data(ident.clone());
           Box::new(future)
         }
 
     }
 
 }
-   
+
 
 fn main() {
 
@@ -154,7 +162,7 @@ fn main() {
       println!("Required environment parameter MYSQL_URL not found, exiting");
       process::exit(1);
     });
-    
+
     let max_cache_size = env::var("MAX_CACHE_SIZE").unwrap_or_else(|_| {
       println!("Required environment parameter MAX_CACHE_SIZE not found, exiting");
       process::exit(1);
