@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package domain;
+
+import "base/timestamp.proto";
+
+message ItemSpecifier {
+  string ident = 1;
+}
+
+//
+// V1
+//
+message ItemData {
+  fixed64 id = 1;
+  string ident = 2;
+
+  string name = 3;
+  base.Timestamp created_at = 4;
+  string description = 5;
+  
+}
+
+
+

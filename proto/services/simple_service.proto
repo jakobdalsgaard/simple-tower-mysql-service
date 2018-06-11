@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package services;
+
+import "domain/item.proto";
+
+service SimpleService {
+
+  // returns ItemData message on success, grpc NOT_FOUND if account is not found
+  rpc GetItemData (domain.ItemSpecifier) returns (domain.ItemData);
+
+}
+

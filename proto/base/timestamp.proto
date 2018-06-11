@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package base;
+
+
+message Timestamp {
+
+  fixed64 seconds = 1;
+  fixed32 nanos = 2;
+
+}
