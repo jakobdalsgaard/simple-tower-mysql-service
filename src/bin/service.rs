@@ -97,6 +97,7 @@ WHERE ident=:ident"#;
         // we found data, return it
         Ok((_, Some(object))) => { 
           println!("object is: {:?}", object);
+          self.item_data_cache.insert(ident, object);
           futures::future::ok(Response::new(object))
         },
 
