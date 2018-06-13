@@ -95,7 +95,7 @@ WHERE ident=:ident"#;
                                ident: from_value(row.take(1).unwrap()),
                                name: from_value(row.take(2).unwrap()),
                                created_at: mysql_value_to_timestamp(row.take(3)),
-                               description: from_value(row.take(6).unwrap()),
+                               description: from_value(row.take(4).unwrap()),
                            })
                        })).map_err(|e| { eprintln!("Error executing the query: {}", e); make_grpc_error(tower_grpc::Status::INTERNAL) } );
 
@@ -143,9 +143,11 @@ impl server::SimpleService for ItemServer {
 
         let cache = CACHE.lock().unwrap();
         if cache.contains_key(&ident.clone()) {
+          print!("c");
           let cached = cache.get(&ident.to_string().clone());
           Box::new(futures::future::ok(Response::new(cached.unwrap().clone())))
         } else {
+          print!("q");
           let future = self.retrieve_item_data(ident.clone());
           Box::new(future)
         }
