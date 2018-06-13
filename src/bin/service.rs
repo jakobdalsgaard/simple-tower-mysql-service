@@ -143,11 +143,9 @@ impl server::SimpleService for ItemServer {
 
         let cache = CACHE.lock().unwrap();
         if cache.contains_key(&ident.clone()) {
-          print!("c");
           let cached = cache.get(&ident.to_string().clone());
           Box::new(futures::future::ok(Response::new(cached.unwrap().clone())))
         } else {
-          print!("q");
           let future = self.retrieve_item_data(ident.clone());
           Box::new(future)
         }
